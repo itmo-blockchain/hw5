@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Snapshot.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract CakeToken is ERC20Snapshot {
-    constructor () ERC20("CakeToken", "CAKE") {
+    constructor () ERC20("Cake Token", "CAKE") {
         _mint(msg.sender, 100_000_000);
     }
 
