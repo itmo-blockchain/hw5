@@ -44,9 +44,6 @@ describe("CakeDAO", function () {
 
             const bob = (await ethers.getSigners())[1];
 
-            console.log("owner: " + owner.address);
-            console.log("bob: " + bob.address);
-
             await cake.connect(owner).transfer(bob.address, 100);
 
             const [_, event] = await cake.queryFilter(cake.filters.Transfer(null, null, null));
