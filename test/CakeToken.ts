@@ -63,4 +63,18 @@ describe("CakeDAO", function () {
             await expect(cake.connect(bob).transfer(owner.address, 1)).to.be.revertedWith("ERC20: transfer amount exceeds balance");
         });
     });
+
+    describe("Delegate", function () {
+        it("Should delegate", async function () {
+            const { cake, owner } = await deployTokenFixture();
+
+            const bob = (await ethers.getSigners())[1];
+
+            await cake.connect(owner).delegate(bob.address);
+
+            const [event] = await cake.queryFilter(cake.filters.DelegateChanged(null, null, null));
+
+            expect(event.args.toDelegate).to.equal(bob.address);
+        });
+    });
 });

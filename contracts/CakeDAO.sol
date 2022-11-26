@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 
 pragma solidity ^0.8.9;
 
@@ -13,26 +13,28 @@ contract CakeDAO {
         uint256 forVotes;
         uint256 againstVotes;
         uint256 expiration;
+        uint256 startBlock;
     }
 
     uint8 public constant MAX_PROPOSALS = 3;
     uint256 public constant VOTING_DURATION = 3 days;
         
-    IERC20 public token;
+    ERC20Votes public token;
     
     mapping (bytes32 => Proposal) proposals;
+    mapping (address => mapping (bytes32 => uint256[2])) votes;
 
     // Simple queue to keep track of the proposals   
     bytes32[MAX_PROPOSALS] private currentProposals;
     // The index of the next proposal to be added to currentProposals
     uint8 private nextProposalNum = 0;
 
-    event NewProposal(bytes32 indexed proposalId, uint256 expiration);
-    event Vote(bytes32 indexed proposalId, address indexed voter, bool forVote);
+    event NewProposal(bytes32 indexed proposalId, uint256 expiration, uint256 startBlock);
+    event Vote(bytes32 indexed proposalId, address indexed voter, uint256 value, bool forVote);
     event ProposalResult(bytes32 indexed proposalId, ProposalState state);
     
     constructor(address _token) {
-        token = IERC20(_token);
+        token = ERC20Votes(_token);
     }
 
     function createProposal(bytes32 _proposalHash) external {
@@ -64,18 +66,70 @@ contract CakeDAO {
             state: ProposalState.Active,
             forVotes: 0,
             againstVotes: 0,
-            expiration: block.timestamp + VOTING_DURATION
+            expiration: block.timestamp + VOTING_DURATION,
+            startBlock: block.number
         });
 
         currentProposals[nextProposalNum] = _proposalHash;  
         nextProposalNum = (nextProposalNum + 1) % MAX_PROPOSALS;
 
-        emit NewProposal(_proposalHash, block.timestamp + VOTING_DURATION);
+        emit NewProposal(_proposalHash, block.timestamp + VOTING_DURATION, block.number);
         
     }
 
-    function vote(bytes32 _proposalHash, bool _for) external {
+    // Vote for a proposal with a given hash, balance should be valid at the time of startBlock
+    function vote(bytes32 _proposalHash, uint256 value, bool _for) external {
+
+        Proposal storage proposal = proposals[_proposalHash];
+
+        require(
+            proposal.state == ProposalState.Active,
+            "Proposal is not active"
+        );
+
+        require(
+            proposal.expiration > block.timestamp,
+            "Proposal is expired"
+        );
+
+        require(
+            value > 0,
+            "Value should be greater than 0"
+        );
+
+        uint256[2] storage lastVote = votes[msg.sender][_proposalHash];
+
+        require(
+            token.getPastVotes(msg.sender, proposal.startBlock) >= value + lastVote[0] + lastVote[1],
+            "Not enough balance"
+        );
+
+        if (_for) {
+            proposal.forVotes += value;
+            lastVote[0] += value;
+        } else {
+            proposal.againstVotes += value;
+            lastVote[1] += value;
+        }
+
+        emit Vote(_proposalHash, msg.sender, value, _for);
         
+        _tryFinish(_proposalHash);
+    }
+
+    function _tryFinish(bytes32 _proposalHash) internal {
+        uint256 totalSupply = token.getPastTotalSupply(proposals[_proposalHash].startBlock);
+
+        if (proposals[_proposalHash].forVotes > totalSupply / 2) {
+            proposals[_proposalHash].state = ProposalState.Accepted;
+            emit ProposalResult(_proposalHash, ProposalState.Accepted);
+        } else if (proposals[_proposalHash].againstVotes > totalSupply / 2) {
+            proposals[_proposalHash].state = ProposalState.Discarded;
+            emit ProposalResult(_proposalHash, ProposalState.Discarded);
+        } else if (proposals[_proposalHash].expiration < block.timestamp) {
+            proposals[_proposalHash].state = ProposalState.Expired;
+            emit ProposalResult(_proposalHash, ProposalState.Expired);
+        }
     }
 
     function getProposalState(bytes32 _proposalHash) external view returns (ProposalState) {
